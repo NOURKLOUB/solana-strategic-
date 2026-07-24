@@ -22,18 +22,17 @@ export default function Home() {
 
   useEffect(() => { setIsMounted(true); }, []);
 
-  // تحديث الرصيد الحي
-  useEffect(() => {
-    if (!publicKey || !connection) return;
-    const updateBalance = async () => {
-      const balance = await connection.getBalance(publicKey);
-      setSolBalance(balance / 1e9);
-    };
-    updateBalance();
-    const subId = connection.onAccountChange(publicKey, updateBalance, "confirmed");
-    return () => connection.removeAccountChangeListener(subId);
-  }, [publicKey, connection]);
+// تحديث الرصيد الحي (الطريقة الصحيحة البرمجياً)
+   useEffect(() => {
+     if (!publicKey || !connection) return;
+     
+     const updateBalance = async () => {
+       const balance = await connection.getBalance(publicKey);
+       // ... باقي الكود الخاص بك لتحديث الرصيد
+     };
 
+     updateBalance();
+   }, [publicKey, connection]);
   // دالة الرصد
   const trackCustomToken = async () => {
     if (!tokenMint) return;
