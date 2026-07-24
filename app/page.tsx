@@ -87,8 +87,16 @@ export default function Home() {
     try {
       const inputMint = action === "buy" ? "So11111111111111111111111111111111111111112" : tokenMint;
       const outputMint = action === "buy" ? tokenMint : "So11111111111111111111111111111111111111112";
+     // بدلاً 
+   const params = new URLSearchParams({
+  inputMint: inputMint,
+  outputMint: outputMint,
+  amount: amount.toString(),
+  slippageBps: slippageBps.toString(),
+       });
 
-      const quoteRes = await fetch(`/api/jupiter?inputMint=${inputMint}&outputMint=${outputMint}&amount=100000&slippageBps=50`);
+     const res = await fetch(`https://quote-api.jup.ag/v6/quote?${params.toString()}`);
+     const quoteData = await res.json();
       const quote = await quoteRes.json();
 
       if (!quote || !quote.routePlan) {
