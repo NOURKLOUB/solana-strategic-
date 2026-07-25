@@ -26,28 +26,26 @@ export default function Home() {
     const updateBalance = async () => {
       try {
         const balance = await connection.getBalance(publicKey);
-        setSolBalance(balance / 1e9); // التحويل من Lamports إلى SOL
+        setSolBalance(balance / 1e9);
       } catch (e) {
         console.error("خطأ في جلب رصيد السولانا:", e);
       }
     };
 
     updateBalance();
-    const interval = setInterval(updateBalance, 15000); // تحديث كل 15 ثانية
+    const interval = setInterval(updateBalance, 15000);
     return () => clearInterval(interval);
   }, [publicKey, connection]);
 
-  // دالة الرصد والتتبع
+  // دالة الرصد والتتبع عبر DexScreener
   const trackCustomToken = async () => {
     if (!tokenMint) return;
     try {
-      // 1. جلب السعر عبر DexScreener (لا يحتاج مفاتيح أو سيرفر)
       const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint.trim()}`);
       const data = await response.json();
       const price = data.pairs?.[0]?.priceUsd;
       setTokenPrice(price ? `$${price}` : "غير متاح");
       
-      // 2. جلب رصيد التوكن الخاص بالمحفظة
       if (publicKey) {
         const accounts = await connection.getParsedTokenAccountsByOwner(publicKey, { 
           programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") 
@@ -85,9 +83,7 @@ export default function Home() {
     }, 10000); 
   };
 
-  // دالة الشراء والبيع عبر Jupiter مع ضبط المعاملات
-// دالة الشراء والبيع المباشرة والآمنة
-  // دالة الشراء والبيع الآمنة الخالية من أي استدعاء خارجي محجوب
+  // دالة الشراء والبيع الآمنة بالكامل عبر السيرفر الداخلي فقط
   const executeSafeSwap = async (action: "buy" | "sell") => {
     try {
       if (!publicKey) {
@@ -99,16 +95,15 @@ export default function Home() {
       const outputMint = action === "buy" ? tokenMint : "So11111111111111111111111111111111111111112";
       const amount = action === "buy" ? 10000000 : Math.floor(parseFloat(tokenBalance) * 1e6);
 
-      // نطلب البيانات من سيرفرنا الداخلي (/api/jupiter) وليس من Jupiter مباشرة لكي يتولى السيرفر المحاولة
+      // الاستدعاء يتم حصرياً عبر السيرفر الداخلي الخالي من الحجب
       const res = await fetch(`/api/jupiter?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=50`);
       const quote = await res.json();
 
       if (!quote || quote.error) {
-        alert("فشل جلب التسعيرة: " + (quote.error || "تأكد من صحة عقد العملة"));
+        alert("فشل جلب التسعيرة: " + (quote.error || "تأكد من صحة عقد العملة أو وجود سيولة"));
         return;
       }
 
-      // إرسال الطلب للسيرفر الداخلي
       const swapRes = await fetch('/api/jupiter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -122,7 +117,7 @@ export default function Home() {
       
       const swapData = await swapRes.json();
       if (!swapData.swapTransaction) {
-        alert("فشل إنشاء المعاملة من السيرفر");
+        alert("لم يتم استرجاع المعاملة من السيرفر");
         return;
       }
 
