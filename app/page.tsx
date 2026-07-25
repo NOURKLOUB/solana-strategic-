@@ -87,6 +87,7 @@ export default function Home() {
 
   // دالة الشراء والبيع عبر Jupiter مع ضبط المعاملات
 // دالة الشراء والبيع المباشرة والآمنة
+  // دالة الشراء والبيع الآمنة الخالية من أي استدعاء خارجي محجوب
   const executeSafeSwap = async (action: "buy" | "sell") => {
     try {
       if (!publicKey) {
@@ -96,21 +97,19 @@ export default function Home() {
 
       const inputMint = action === "buy" ? "So11111111111111111111111111111111111111112" : tokenMint;
       const outputMint = action === "buy" ? tokenMint : "So11111111111111111111111111111111111111112";
-      
       const amount = action === "buy" ? 10000000 : Math.floor(parseFloat(tokenBalance) * 1e6);
-      const slippageBps = 50;
 
-      // جلب التسعير مباشرة من واجهة Jupiter العامة (أو استخدام البديل المباشر)
-      const res = await fetch(`https://quote-api.jup.ag/v6/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=${slippageBps}`);
+      // نطلب البيانات من سيرفرنا الداخلي (/api/jupiter) وليس من Jupiter مباشرة لكي يتولى السيرفر المحاولة
+      const res = await fetch(`/api/jupiter?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amount}&slippageBps=50`);
       const quote = await res.json();
 
-      if (!quote || (!quote.routePlan && !quote.outAmount)) {
-        alert("فشل جلب التسعيرة. تأكد أن التوكن يمتلك سيولة نشطة.");
+      if (!quote || quote.error) {
+        alert("فشل جلب التسعيرة: " + (quote.error || "تأكد من صحة عقد العملة"));
         return;
       }
 
-      // طلب بيانات التنفيذ من Jupiter مباشرة
-      const swapRes = await fetch('https://quote-api.jup.ag/v6/swap', {
+      // إرسال الطلب للسيرفر الداخلي
+      const swapRes = await fetch('/api/jupiter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -122,14 +121,12 @@ export default function Home() {
       });
       
       const swapData = await swapRes.json();
-      const swapTransaction = swapData.swapTransaction;
-
-      if (!swapTransaction) {
-        alert("لم يتم استرجاع المعاملة من Jupiter");
+      if (!swapData.swapTransaction) {
+        alert("فشل إنشاء المعاملة من السيرفر");
         return;
       }
 
-      const transactionBuf = Buffer.from(swapTransaction, 'base64');
+      const transactionBuf = Buffer.from(swapData.swapTransaction, 'base64');
       const transaction = VersionedTransaction.deserialize(transactionBuf);
       
       const signature = await sendTransaction(transaction, connection);
