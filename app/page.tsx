@@ -12,7 +12,7 @@ export default function Home() {
   const [solBalance, setSolBalance] = useState(0);
   const [tokenMint, setTokenMint] = useState("");
   const [tokenBalance, setTokenBalance] = useState("0.00");
-  const [tokenPrice, setTokenPrice] = useState("0.00");
+  const [tokenPrice, setTokenPrice] = useState(0); // مخزنة كرقْم لحساب القيمة
   const [targetPrice, setTargetPrice] = useState("");
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [savedTokens, setSavedTokens] = useState<string[]>([]);
@@ -20,7 +20,6 @@ export default function Home() {
 
   useEffect(() => { 
     setIsMounted(true); 
-    // استرجاع العملات المحفوظة مسبقاً من ذاكرة المتصفح
     const loadedTokens = localStorage.getItem("my_saved_tokens");
     if (loadedTokens) {
       try {
@@ -84,8 +83,8 @@ export default function Home() {
     try {
       const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${targetMint}`);
       const data = await response.json();
-      const price = data.pairs?.[0]?.priceUsd;
-      setTokenPrice(price ? `$${price}` : "غير متاح (لا توجد سيولة نشطة)");
+      const price = parseFloat(data.pairs?.[0]?.priceUsd || 0);
+      setTokenPrice(price);
       
       if (publicKey) {
         const accounts = await connection.getParsedTokenAccountsByOwner(publicKey, { 
@@ -96,9 +95,12 @@ export default function Home() {
       }
     } catch (e) { 
       console.error("خطأ في الاتصال:", e);
-      setTokenPrice("خطأ في جلب السعر");
+      setTokenPrice(0);
     }
   };
+
+  // حساب القيمة الإجمالية للتوكن بالدولار
+  const totalHoldingValue = (parseFloat(tokenBalance) * tokenPrice).toFixed(2);
 
   // محرك المراقبة الذكية (Take Profit Monitor)
   const toggleMonitor = () => {
@@ -119,7 +121,7 @@ export default function Home() {
         const currentPrice = parseFloat(data.pairs?.[0]?.priceUsd || 0);
         const target = parseFloat(targetPrice);
 
-        setTokenPrice(currentPrice ? `$${currentPrice}` : "غير متاح");
+        setTokenPrice(currentPrice);
 
         if (currentPrice >= target && parseFloat(tokenBalance) > 0) {
           setIsMonitoring(false);
@@ -194,24 +196,32 @@ export default function Home() {
 
   return (
     <main className="flex flex-col items-center p-10 gap-6 bg-gray-900 min-h-screen text-white">
-      <h1 className="text-3xl font-bold text-purple-400">منصة إدارة الأصول والأرباح (Pro)</h1>
+      <h1 className="text-3xl font-bold text-purple-400">منصة تتبع الأصول والأرباح (Pro)</h1>
       <WalletMultiButton />
       
       <div className="bg-gray-800 p-6 rounded-2xl w-full max-w-md border border-purple-500 shadow-xl flex flex-col gap-4">
-        <div className="bg-gray-700/50 p-3 rounded-xl border border-gray-600 flex justify-between items-center">
+        {/* شريط الأرصدة العلوي */}
+        <div className="bg-gray-700/50 p-3 rounded-xl border border-gray-600 grid grid-cols-2 gap-2">
           <div>
             <p className="text-xs text-gray-300">رصيد السولانا:</p>
-            <p className="text-lg font-bold text-green-400">{solBalance.toFixed(4)} SOL</p>
+            <p className="text-base font-bold text-green-400">{solBalance.toFixed(4)} SOL</p>
           </div>
           <div className="text-left">
             <p className="text-xs text-gray-300">السعر الحي:</p>
-            <p className="text-sm font-semibold text-white">{tokenPrice}</p>
+            <p className="text-sm font-semibold text-white">{tokenPrice > 0 ? `$${tokenPrice}` : "غير متاح"}</p>
           </div>
         </div>
 
-        <div className="bg-gray-700/50 p-3 rounded-xl border border-gray-600">
-          <p className="text-xs text-gray-300">رصيد العملة الحالية:</p>
-          <p className="text-lg font-bold text-blue-400">{tokenBalance}</p>
+        {/* لوحة الأرباح والقيمة الإجمالية (PnL Tracker) */}
+        <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 p-3.5 rounded-xl border border-purple-500/40 flex justify-between items-center">
+          <div>
+            <p className="text-xs text-gray-300">رصيد العملة:</p>
+            <p className="text-base font-bold text-blue-400">{tokenBalance}</p>
+          </div>
+          <div className="text-left">
+            <p className="text-xs text-purple-300 font-medium">القيمة الإجمالية ($):</p>
+            <p className="text-lg font-extrabold text-yellow-400">${totalHoldingValue}</p>
+          </div>
         </div>
         
         <div className="flex gap-2">
@@ -230,7 +240,7 @@ export default function Home() {
           </button>
         </div>
 
-        {/* عرض قائمة العملات المحفوظة */}
+        {/* قائمة العملات المحفوظة */}
         {savedTokens.length > 0 && (
           <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-700">
             <p className="text-xs font-semibold text-gray-400 mb-2">⭐ العملات المفضلة لديك:</p>
@@ -272,7 +282,7 @@ export default function Home() {
             onClick={() => trackCustomToken()} 
             className="bg-blue-600 hover:bg-blue-700 p-2.5 rounded-lg font-semibold transition text-xs shadow-md"
           >
-            تحديث السعر والرصيد
+            تحديث السعر والقيمة
           </button>
           
           <button 
