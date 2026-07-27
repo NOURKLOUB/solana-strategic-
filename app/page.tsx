@@ -15,9 +15,21 @@ export default function Home() {
   const [tokenPrice, setTokenPrice] = useState("0.00");
   const [targetPrice, setTargetPrice] = useState("");
   const [isMonitoring, setIsMonitoring] = useState(false);
+  const [savedTokens, setSavedTokens] = useState<string[]>([]);
   const [isMounted, setIsMounted] = useState(false);
 
-  useEffect(() => { setIsMounted(true); }, []);
+  useEffect(() => { 
+    setIsMounted(true); 
+    // استرجاع العملات المحفوظة مسبقاً من ذاكرة المتصفح
+    const loadedTokens = localStorage.getItem("my_saved_tokens");
+    if (loadedTokens) {
+      try {
+        setSavedTokens(JSON.parse(loadedTokens));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, []);
 
   // تحديث رصيد السولانا الحي من المحفظة
   useEffect(() => {
@@ -37,25 +49,49 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [publicKey, connection]);
 
-  // دالة رصد سعر العملة الحقيقي ورصيدك في المحفظة عبر DexScreener
-  const trackCustomToken = async () => {
-    if (!tokenMint.trim()) {
-      alert("الرجاء إدخال عنوان عقد العملة (Mint) أولاً!");
+  // حفظ العملة الحالية في القائمة المفضلة
+  const saveTokenToWatchlist = () => {
+    if (!tokenMint.trim()) return;
+    if (savedTokens.includes(tokenMint.trim())) {
+      alert("هذه العملة موجودة مسبقاً في القائمة المفضلة!");
       return;
     }
+    const updated = [...savedTokens, tokenMint.trim()];
+    setSavedTokens(updated);
+    localStorage.setItem("my_saved_tokens", JSON.stringify(updated));
+    alert("تمت إضافة العملة إلى القائمة بنجاح! ⭐");
+  };
+
+  // حذف عملة من القائمة
+  const removeTokenFromWatchlist = (mintToRemove: string) => {
+    const updated = savedTokens.filter(t => t !== mintToRemove);
+    setSavedTokens(updated);
+    localStorage.setItem("my_saved_tokens", JSON.stringify(updated));
+  };
+
+  // دالة رصد سعر العملة الحقيقي ورصيدك في المحفظة عبر DexScreener
+  const trackCustomToken = async (mintToTrack?: string) => {
+    const targetMint = mintToTrack || tokenMint.trim();
+    if (!targetMint) {
+      alert("الرجاء إدخال أو اختيار عقد العملة أولاً!");
+      return;
+    }
+    
+    if (mintToTrack) {
+      setTokenMint(mintToTrack);
+    }
+
     try {
-      // جلب السعر اللحظي من DexScreener (بدون حجب)
-      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenMint.trim()}`);
+      const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${targetMint}`);
       const data = await response.json();
       const price = data.pairs?.[0]?.priceUsd;
       setTokenPrice(price ? `$${price}` : "غير متاح (لا توجد سيولة نشطة)");
       
-      // جلب رصيد العملة الموجود فعلياً في محفظة Phantom الخاصة بك
       if (publicKey) {
         const accounts = await connection.getParsedTokenAccountsByOwner(publicKey, { 
           programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") 
         });
-        const myToken = accounts.value.find(a => a.account.data.parsed.info.mint === tokenMint.trim());
+        const myToken = accounts.value.find(a => a.account.data.parsed.info.mint === targetMint);
         setTokenBalance(myToken ? myToken.account.data.parsed.info.tokenAmount.uiAmountString : "0");
       }
     } catch (e) { 
@@ -85,7 +121,6 @@ export default function Home() {
 
         setTokenPrice(currentPrice ? `$${currentPrice}` : "غير متاح");
 
-        // إذا وصل السعر المستهدف أو تجاوز، نقوم بتنفيذ البيع التلقائي للأرباح!
         if (currentPrice >= target && parseFloat(tokenBalance) > 0) {
           setIsMonitoring(false);
           alert("🎉 تم الوصول للسعر المستهدف! جاري تنفيذ أمر البيع...");
@@ -109,14 +144,13 @@ export default function Home() {
 
       const inputMint = tokenMint.trim();
       const outputMint = "So11111111111111111111111111111111111111112"; // SOL
-      const amountToSell = Math.floor(parseFloat(tokenBalance) * 1e6); // تعديل حسب تفاصيل التوكن
+      const amountToSell = Math.floor(parseFloat(tokenBalance) * 1e6);
 
       if (amountToSell <= 0) {
         alert("رصيدك من هذه العملة يساوي صفر!");
         return;
       }
 
-      // جلب التسعيرة للبيع عبر السيرفر الداخلي الآمن
       const res = await fetch(`/api/jupiter?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountToSell}&slippageBps=100`);
       const quote = await res.json();
 
@@ -125,7 +159,6 @@ export default function Home() {
         return;
       }
 
-      // طلب معاملة البيع
       const swapRes = await fetch('/api/jupiter', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -150,7 +183,7 @@ export default function Home() {
       await connection.confirmTransaction(signature, 'confirmed');
       
       alert("تمت عملية البيع بنجاح وتحويل الأرباح إلى SOL! 🚀💰");
-      trackCustomToken(); // تحديث الأرصدة فوراً
+      trackCustomToken();
     } catch (e: any) {
       console.error("خطأ في عملية البيع:", e);
       alert("حدث خطأ أثناء البيع: " + (e.message || e));
@@ -164,43 +197,87 @@ export default function Home() {
       <h1 className="text-3xl font-bold text-purple-400">منصة إدارة الأصول والأرباح (Pro)</h1>
       <WalletMultiButton />
       
-      <div className="bg-gray-800 p-6 rounded-2xl w-full max-w-sm border border-purple-500 shadow-xl flex flex-col gap-4">
-        <div className="bg-gray-700/50 p-3 rounded-xl border border-gray-600">
-          <p className="text-sm text-gray-300">رصيد السولانا:</p>
-          <p className="text-xl font-bold text-green-400">{solBalance.toFixed(4)} SOL</p>
+      <div className="bg-gray-800 p-6 rounded-2xl w-full max-w-md border border-purple-500 shadow-xl flex flex-col gap-4">
+        <div className="bg-gray-700/50 p-3 rounded-xl border border-gray-600 flex justify-between items-center">
+          <div>
+            <p className="text-xs text-gray-300">رصيد السولانا:</p>
+            <p className="text-lg font-bold text-green-400">{solBalance.toFixed(4)} SOL</p>
+          </div>
+          <div className="text-left">
+            <p className="text-xs text-gray-300">السعر الحي:</p>
+            <p className="text-sm font-semibold text-white">{tokenPrice}</p>
+          </div>
         </div>
 
         <div className="bg-gray-700/50 p-3 rounded-xl border border-gray-600">
-          <p className="text-sm text-gray-300">رصيد العملة المستهدفة:</p>
+          <p className="text-xs text-gray-300">رصيد العملة الحالية:</p>
           <p className="text-lg font-bold text-blue-400">{tokenBalance}</p>
-          <p className="text-xs text-gray-400 mt-1">السعر الحي: <span className="text-white font-semibold">{tokenPrice}</span></p>
         </div>
         
-        <input 
-          className="w-full p-2.5 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-purple-400 text-sm" 
-          placeholder="عنوان عقد العملة (Mint Address)" 
-          value={tokenMint}
-          onChange={(e) => setTokenMint(e.target.value)} 
-        />
+        <div className="flex gap-2">
+          <input 
+            className="w-full p-2.5 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-purple-400 text-xs" 
+            placeholder="عنوان عقد العملة (Mint Address)" 
+            value={tokenMint}
+            onChange={(e) => setTokenMint(e.target.value)} 
+          />
+          <button 
+            onClick={saveTokenToWatchlist} 
+            className="bg-yellow-600 hover:bg-yellow-700 px-3 rounded-lg text-xs font-bold transition shadow"
+            title="حفظ في المفضلة"
+          >
+            ⭐ حفظ
+          </button>
+        </div>
+
+        {/* عرض قائمة العملات المحفوظة */}
+        {savedTokens.length > 0 && (
+          <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-700">
+            <p className="text-xs font-semibold text-gray-400 mb-2">⭐ العملات المفضلة لديك:</p>
+            <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
+              {savedTokens.map((token, idx) => (
+                <div key={idx} className="flex justify-between items-center bg-gray-800 p-2 rounded-lg border border-gray-700">
+                  <span className="text-xs font-mono text-purple-300 truncate w-48" title={token}>
+                    {token.slice(0, 6)}...{token.slice(-6)}
+                  </span>
+                  <div className="flex gap-1">
+                    <button 
+                      onClick={() => trackCustomToken(token)} 
+                      className="bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded text-xs transition"
+                    >
+                      اختيار
+                    </button>
+                    <button 
+                      onClick={() => removeTokenFromWatchlist(token)} 
+                      className="bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-xs transition"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         
         <input 
-          className="w-full p-2.5 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-purple-400 text-sm" 
+          className="w-full p-2.5 rounded-lg bg-gray-700 text-white border border-gray-600 focus:outline-none focus:border-purple-400 text-xs" 
           placeholder="سعر جني الأرباح المستهدف بالدولار ($)" 
           value={targetPrice}
           onChange={(e) => setTargetPrice(e.target.value)} 
         />
         
-        <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="grid grid-cols-2 gap-2 mt-1">
           <button 
-            onClick={trackCustomToken} 
-            className="bg-blue-600 hover:bg-blue-700 p-2.5 rounded-lg font-semibold transition text-sm shadow-md"
+            onClick={() => trackCustomToken()} 
+            className="bg-blue-600 hover:bg-blue-700 p-2.5 rounded-lg font-semibold transition text-xs shadow-md"
           >
             تحديث السعر والرصيد
           </button>
           
           <button 
             onClick={executeSell} 
-            className="bg-red-600 hover:bg-red-700 p-2.5 rounded-lg font-semibold transition text-sm shadow-md"
+            className="bg-red-600 hover:bg-red-700 p-2.5 rounded-lg font-semibold transition text-xs shadow-md"
           >
             بيع فوري (يدوي)
           </button>
@@ -208,7 +285,7 @@ export default function Home() {
 
         <button 
           onClick={toggleMonitor} 
-          className={`w-full p-3 rounded-lg font-bold transition shadow-lg text-sm mt-1 ${isMonitoring ? 'bg-yellow-600 hover:bg-yellow-700 animate-pulse' : 'bg-purple-600 hover:bg-purple-700'}`}
+          className={`w-full p-3 rounded-lg font-bold transition shadow-lg text-xs ${isMonitoring ? 'bg-yellow-600 hover:bg-yellow-700 animate-pulse' : 'bg-purple-600 hover:bg-purple-700'}`}
         >
           {isMonitoring ? "🛑 إيقاف مراقبة الأرباح" : "🚀 تفعيل مراقبة جني الأرباح (Take Profit)"}
         </button>
