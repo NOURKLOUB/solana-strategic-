@@ -12,7 +12,7 @@ export default function Home() {
   const [solBalance, setSolBalance] = useState(0);
   const [tokenMint, setTokenMint] = useState("");
   const [tokenBalance, setTokenBalance] = useState("0.00");
-  const [tokenPrice, setTokenPrice] = useState(0); // مخزنة كرقْم لحساب القيمة
+  const [tokenPrice, setTokenPrice] = useState(0);
   const [targetPrice, setTargetPrice] = useState("");
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [savedTokens, setSavedTokens] = useState<string[]>([]);
@@ -68,6 +68,19 @@ export default function Home() {
     localStorage.setItem("my_saved_tokens", JSON.stringify(updated));
   };
 
+  // دالة إرسال تنبيه تيليجرام داخلياً
+  const sendTelegramAlert = async (text: string) => {
+    try {
+      await fetch('/api/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+    } catch (err) {
+      console.error("خطأ في إرسال إشعار تيليجرام:", err);
+    }
+  };
+
   // دالة رصد سعر العملة الحقيقي ورصيدك في المحفظة عبر DexScreener
   const trackCustomToken = async (mintToTrack?: string) => {
     const targetMint = mintToTrack || tokenMint.trim();
@@ -102,13 +115,17 @@ export default function Home() {
   // حساب القيمة الإجمالية للتوكن بالدولار
   const totalHoldingValue = (parseFloat(tokenBalance) * tokenPrice).toFixed(2);
 
-  // محرك المراقبة الذكية (Take Profit Monitor)
+  // محرك المراقبة الذكية (Take Profit Monitor) مع تنبيه تيليجرام
   const toggleMonitor = () => {
     if (!targetPrice || !tokenMint) {
       alert("الرجاء تحديد عقد العملة والسعر المستهدف للبيع!");
       return;
     }
-    setIsMonitoring(!isMonitoring);
+    const newState = !isMonitoring;
+    setIsMonitoring(newState);
+    if (newState) {
+      sendTelegramAlert(`🚨 *تم بدء مراقبة العملة بنجاح!*\nالعقد: \`${tokenMint.slice(0,6)}...\`\nالسعر المستهدف: $${targetPrice}`);
+    }
   };
 
   useEffect(() => {
@@ -125,7 +142,7 @@ export default function Home() {
 
         if (currentPrice >= target && parseFloat(tokenBalance) > 0) {
           setIsMonitoring(false);
-          alert("🎉 تم الوصول للسعر المستهدف! جاري تنفيذ أمر البيع...");
+          await sendTelegramAlert(`🎉 *تنبيه تحقيق الهدف (Take Profit)!*\nالسعر الحالي وصل إلى: *$${currentPrice}*\nجاري تنفيذ أمر البيع تلقائياً... 💰`);
           await executeSell();
         }
       } catch (err) {
@@ -184,10 +201,12 @@ export default function Home() {
       const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature, 'confirmed');
       
+      await sendTelegramAlert(`✅ *تمت عملية البيع بنجاح وتحويل الأرباح إلى SOL!* 🚀💰`);
       alert("تمت عملية البيع بنجاح وتحويل الأرباح إلى SOL! 🚀💰");
       trackCustomToken();
     } catch (e: any) {
       console.error("خطأ في عملية البيع:", e);
+      await sendTelegramAlert(`❌ *فشلت عملية البيع:* ${e.message || e}`);
       alert("حدث خطأ أثناء البيع: " + (e.message || e));
     }
   };
@@ -297,7 +316,7 @@ export default function Home() {
           onClick={toggleMonitor} 
           className={`w-full p-3 rounded-lg font-bold transition shadow-lg text-xs ${isMonitoring ? 'bg-yellow-600 hover:bg-yellow-700 animate-pulse' : 'bg-purple-600 hover:bg-purple-700'}`}
         >
-          {isMonitoring ? "🛑 إيقاف مراقبة الأرباح" : "🚀 تفعيل مراقبة جني الأرباح (Take Profit)"}
+          {isMonitoring ? "🛑 إيقاف مراقبة الأرباح" : "🚀 تفعيل مراقبة جني الأرباح مع تنبيه تيليجرام"}
         </button>
       </div>
     </main>
