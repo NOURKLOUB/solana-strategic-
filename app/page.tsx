@@ -5,6 +5,14 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 
+interface TradeRecord {
+  id: string;
+  tokenMint: string;
+  amount: string;
+  time: string;
+  status: string;
+}
+
 export default function Home() {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
@@ -16,17 +24,18 @@ export default function Home() {
   const [targetPrice, setTargetPrice] = useState("");
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [savedTokens, setSavedTokens] = useState<string[]>([]);
+  const [tradeHistory, setTradeHistory] = useState<TradeRecord[]>([]);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => { 
     setIsMounted(true); 
     const loadedTokens = localStorage.getItem("my_saved_tokens");
     if (loadedTokens) {
-      try {
-        setSavedTokens(JSON.parse(loadedTokens));
-      } catch (e) {
-        console.error(e);
-      }
+      try { setSavedTokens(JSON.parse(loadedTokens)); } catch (e) { console.error(e); }
+    }
+    const loadedTrades = localStorage.getItem("my_trade_history");
+    if (loadedTrades) {
+      try { setTradeHistory(JSON.parse(loadedTrades)); } catch (e) { console.error(e); }
     }
   }, []);
 
@@ -66,6 +75,26 @@ export default function Home() {
     const updated = savedTokens.filter(t => t !== mintToRemove);
     setSavedTokens(updated);
     localStorage.setItem("my_saved_tokens", JSON.stringify(updated));
+  };
+
+  // إضافة صفقة جديدة للسجل وحفظها
+  const addTradeRecord = (mint: string, amount: string, status: string) => {
+    const newRecord: TradeRecord = {
+      id: Date.now().toString(),
+      tokenMint: mint,
+      amount: amount,
+      time: new Date().toLocaleTimeString(),
+      status: status
+    };
+    const updatedHistory = [newRecord, ...tradeHistory];
+    setTradeHistory(updatedHistory);
+    localStorage.setItem("my_trade_history", JSON.stringify(updatedHistory));
+  };
+
+  // مسح السجل
+  const clearTradeHistory = () => {
+    setTradeHistory([]);
+    localStorage.removeItem("my_trade_history");
   };
 
   // دالة إرسال تنبيه تيليجرام داخلياً
@@ -124,7 +153,7 @@ export default function Home() {
     const newState = !isMonitoring;
     setIsMonitoring(newState);
     if (newState) {
-      sendTelegramAlert(`📡 *تم تفعيل رادار المراقبة الشامل*\nعدد العملات المفضلة المتمتعة بالحماية والرصد: ${savedTokens.length} عملة 🚀`);
+      sendTelegramAlert(`📡 *تم تفعيل رادار المراقبة الشامل*\nعدد العملات المفضلة المرصودة: ${savedTokens.length} عملة 🚀`);
     } else {
       sendTelegramAlert(`🛑 *تم إيقاف رادار المراقبة الشامل*`);
     }
@@ -134,21 +163,15 @@ export default function Home() {
     if (!isMonitoring || savedTokens.length === 0) return;
 
     const interval = setInterval(async () => {
-      console.log("🔍 فحص دوري لكل العملات المفضلة...");
-      
       for (const token of savedTokens) {
         try {
           const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token}`);
           const data = await response.json();
           const currentPrice = parseFloat(data.pairs?.[0]?.priceUsd || 0);
 
-          // إذا كانت هذه هي العملة النشطة حالياً في الشاشة، نحدث سعرها مباشرة
           if (token === tokenMint.trim()) {
             setTokenPrice(currentPrice);
           }
-
-          // يمكنك تعيين تنبيه عام لأي عملة إذا تخطت سعراً معيناً أو إرسال تقرير دوري
-          // هنا نرسل تنبيه حي يخبرك بسعرها الحالي إذا أردت، أو نربطه بشروط مخصصة
         } catch (err) {
           console.error(`خطأ في فحص العملة ${token}:`, err);
         }
@@ -173,7 +196,7 @@ export default function Home() {
 
         if (currentPrice >= target && parseFloat(tokenBalance) > 0) {
           setIsMonitoring(false);
-          await sendTelegramAlert(`🎉 *تنبيه تحقيق الهدف (Take Profit)!*\nالعقد: \`${tokenMint.slice(0,6)}...\`\nوصل السعر إلى: *$${currentPrice}*\nجاري تنفيذ أمر البيع تلقائياً... 💰`);
+          await sendTelegramAlert(`🎉 *تنبيه تحقيق الهدف (Take Profit)!*\nالسعر وصل إلى: *$${currentPrice}*\nجاري تنفيذ أمر البيع تلقائياً... 💰`);
           await executeSell();
         }
       } catch (err) {
@@ -232,11 +255,13 @@ export default function Home() {
       const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature, 'confirmed');
       
+      addTradeRecord(inputMint, tokenBalance, "نجاح ✅ (بيع فوري)");
       await sendTelegramAlert(`✅ *تمت عملية البيع بنجاح وتحويل الأرباح إلى SOL!* 🚀💰`);
       alert("تمت عملية البيع بنجاح وتحويل الأرباح إلى SOL! 🚀💰");
       trackCustomToken();
     } catch (e: any) {
       console.error("خطأ في عملية البيع:", e);
+      addTradeRecord(tokenMint.trim(), tokenBalance, "فشل ❌");
       await sendTelegramAlert(`❌ *فشلت عملية البيع:* ${e.message || e}`);
       alert("حدث خطأ أثناء البيع: " + (e.message || e));
     }
@@ -349,6 +374,40 @@ export default function Home() {
         >
           {isMonitoring ? "🛑 إيقاف رادار المراقبة الشامل" : "📡 تفعيل رادار المراقبة الشامل للعملات المفضلة"}
         </button>
+
+        {/* 📜 سجل الصفقات والأرباح التاريخية */}
+        <div className="bg-gray-900/70 p-3 rounded-xl border border-gray-700 mt-2">
+          <div className="flex justify-between items-center mb-2">
+            <p className="text-xs font-bold text-green-400">📜 سجل الصفقات التاريخية ({tradeHistory.length}):</p>
+            {tradeHistory.length > 0 && (
+              <button 
+                onClick={clearTradeHistory} 
+                className="text-[10px] text-red-400 hover:text-red-300 underline"
+              >
+                مسح السجل
+              </button>
+            )}
+          </div>
+          {tradeHistory.length === 0 ? (
+            <p className="text-[11px] text-gray-500 text-center py-2">لا توجد صفقات مسجلة حتى الآن.</p>
+          ) : (
+            <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto">
+              {tradeHistory.map((trade) => (
+                <div key={trade.id} className="bg-gray-800 p-2 rounded-lg border border-gray-700 text-[11px] flex justify-between items-center">
+                  <div>
+                    <span className="font-mono text-purple-300">{trade.tokenMint.slice(0, 4)}...{trade.tokenMint.slice(-4)}</span>
+                    <span className="text-gray-400 mx-1">({trade.amount})</span>
+                  </div>
+                  <div className="text-left">
+                    <span className="text-green-400 font-semibold block">{trade.status}</span>
+                    <span className="text-[9px] text-gray-500">{trade.time}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
       </div>
     </main>
   );
