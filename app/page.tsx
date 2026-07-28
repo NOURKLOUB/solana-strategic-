@@ -115,21 +115,52 @@ export default function Home() {
   // حساب القيمة الإجمالية للتوكن بالدولار
   const totalHoldingValue = (parseFloat(tokenBalance) * tokenPrice).toFixed(2);
 
-  // محرك المراقبة الذكية (Take Profit Monitor) مع تنبيه تيليجرام
+  // محرك المراقبة الشامل (Multi-Token Watchlist Radar)
   const toggleMonitor = () => {
-    if (!targetPrice || !tokenMint) {
-      alert("الرجاء تحديد عقد العملة والسعر المستهدف للبيع!");
+    if (savedTokens.length === 0) {
+      alert("الرجاء حفظ عملة واحدة على الأقل في القائمة المفضلة لتفعيل الرادار الشامل!");
       return;
     }
     const newState = !isMonitoring;
     setIsMonitoring(newState);
     if (newState) {
-      sendTelegramAlert(`🚨 *تم بدء مراقبة العملة بنجاح!*\nالعقد: \`${tokenMint.slice(0,6)}...\`\nالسعر المستهدف: $${targetPrice}`);
+      sendTelegramAlert(`📡 *تم تفعيل رادار المراقبة الشامل*\nعدد العملات المفضلة المتمتعة بالحماية والرصد: ${savedTokens.length} عملة 🚀`);
+    } else {
+      sendTelegramAlert(`🛑 *تم إيقاف رادار المراقبة الشامل*`);
     }
   };
 
   useEffect(() => {
-    if (!isMonitoring) return;
+    if (!isMonitoring || savedTokens.length === 0) return;
+
+    const interval = setInterval(async () => {
+      console.log("🔍 فحص دوري لكل العملات المفضلة...");
+      
+      for (const token of savedTokens) {
+        try {
+          const response = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${token}`);
+          const data = await response.json();
+          const currentPrice = parseFloat(data.pairs?.[0]?.priceUsd || 0);
+
+          // إذا كانت هذه هي العملة النشطة حالياً في الشاشة، نحدث سعرها مباشرة
+          if (token === tokenMint.trim()) {
+            setTokenPrice(currentPrice);
+          }
+
+          // يمكنك تعيين تنبيه عام لأي عملة إذا تخطت سعراً معيناً أو إرسال تقرير دوري
+          // هنا نرسل تنبيه حي يخبرك بسعرها الحالي إذا أردت، أو نربطه بشروط مخصصة
+        } catch (err) {
+          console.error(`خطأ في فحص العملة ${token}:`, err);
+        }
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [isMonitoring, savedTokens, tokenMint]);
+
+  // محرك المراقبة المخصص للهدف الفردي (Take Profit Monitor)
+  useEffect(() => {
+    if (!isMonitoring || !targetPrice || !tokenMint) return;
 
     const interval = setInterval(async () => {
       try {
@@ -142,7 +173,7 @@ export default function Home() {
 
         if (currentPrice >= target && parseFloat(tokenBalance) > 0) {
           setIsMonitoring(false);
-          await sendTelegramAlert(`🎉 *تنبيه تحقيق الهدف (Take Profit)!*\nالسعر الحالي وصل إلى: *$${currentPrice}*\nجاري تنفيذ أمر البيع تلقائياً... 💰`);
+          await sendTelegramAlert(`🎉 *تنبيه تحقيق الهدف (Take Profit)!*\nالعقد: \`${tokenMint.slice(0,6)}...\`\nوصل السعر إلى: *$${currentPrice}*\nجاري تنفيذ أمر البيع تلقائياً... 💰`);
           await executeSell();
         }
       } catch (err) {
@@ -262,7 +293,7 @@ export default function Home() {
         {/* قائمة العملات المحفوظة */}
         {savedTokens.length > 0 && (
           <div className="bg-gray-900/60 p-3 rounded-xl border border-gray-700">
-            <p className="text-xs font-semibold text-gray-400 mb-2">⭐ العملات المفضلة لديك:</p>
+            <p className="text-xs font-semibold text-gray-400 mb-2">⭐ العملات المفضلة لديك ({savedTokens.length}):</p>
             <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto">
               {savedTokens.map((token, idx) => (
                 <div key={idx} className="flex justify-between items-center bg-gray-800 p-2 rounded-lg border border-gray-700">
@@ -316,7 +347,7 @@ export default function Home() {
           onClick={toggleMonitor} 
           className={`w-full p-3 rounded-lg font-bold transition shadow-lg text-xs ${isMonitoring ? 'bg-yellow-600 hover:bg-yellow-700 animate-pulse' : 'bg-purple-600 hover:bg-purple-700'}`}
         >
-          {isMonitoring ? "🛑 إيقاف مراقبة الأرباح" : "🚀 تفعيل مراقبة جني الأرباح مع تنبيه تيليجرام"}
+          {isMonitoring ? "🛑 إيقاف رادار المراقبة الشامل" : "📡 تفعيل رادار المراقبة الشامل للعملات المفضلة"}
         </button>
       </div>
     </main>
