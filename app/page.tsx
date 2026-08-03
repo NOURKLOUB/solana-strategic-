@@ -235,6 +235,7 @@ export default function Home() {
   }, [isMonitoring, targetPrice, tokenMint, tokenBalance]);
 
   // دالة البيع السريع والآمن عبر السيرفر الداخلي و Jupiter
+  // دالة البيع السريع والآمن عبر السيرفر الداخلي و Jupiter
   const executeSell = async () => {
     try {
       if (!publicKey) {
@@ -244,10 +245,11 @@ export default function Home() {
 
       const inputMint = tokenMint.trim();
       const outputMint = "So11111111111111111111111111111111111111112"; // SOL
+      const currentTokenBal = tokenBalance; // حفظ الرصيد قبل البيع للتسجيل
       const amountToSell = Math.floor(parseFloat(tokenBalance) * 1e6);
 
       if (amountToSell <= 0) {
-        alert("رصيدك من هذه العملة يساوي صفر!");
+        alert("رصيد العملة لديك يساوي صفر (لا توجد عملات لبيعها)!");
         return;
       }
 
@@ -282,8 +284,9 @@ export default function Home() {
       const signature = await sendTransaction(transaction, connection);
       await connection.confirmTransaction(signature, 'confirmed');
       
-      addTradeRecord(inputMint, tokenBalance, "نجاح ✅ (بيع فوري)");
-      await sendTelegramAlert(`✅ *تمت عملية البيع بنجاح وتحويل الأرباح إلى SOL!* 🚀💰`);
+      // تسجيل الصفقة في السجل المحلي فوراً
+      addTradeRecord(inputMint, currentTokenBal, "نجاح ✅ (بيع فوري)");
+      await sendTelegramAlert(`✅ *تمت عملية البيع اليدوي بنجاح وتحويل الأرباح إلى SOL!* 🚀💰`);
       alert("تمت عملية البيع بنجاح وتحويل الأرباح إلى SOL! 🚀💰");
       trackCustomToken();
     } catch (e: any) {
